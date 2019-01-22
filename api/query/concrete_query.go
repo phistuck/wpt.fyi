@@ -31,6 +31,18 @@ type ConcreteQuery interface {
 	Size() int
 }
 
+// ConcreteItemQuery is an AbstractItemQuery that has been bound to a specific test run.
+type ConcreteItemQuery interface {
+	ConcreteQuery
+}
+
+// Exists is constrains search results to require that at least one run meets the
+// requirements of its Arg tree.
+type Exists struct {
+	Runs []shared.TestRun
+	Args []ConcreteItemQuery
+}
+
 // RunTestStatusEq constrains search results to include only test results from a
 // particular run that have a particular test status value. Run IDs are those
 // values automatically assigned to shared.TestRun instances by Datastore.
@@ -49,25 +61,25 @@ type RunTestStatusNeq struct {
 	Status int64
 }
 
-// Or is a logical disjunction of ConcreteQuery instances.
+// Or is a logical disjunction of ConcreteItemQuery instances.
 type Or struct {
-	Args []ConcreteQuery
+	Args concreteItemQueries
 }
 
-// And is a logical conjunction of ConcreteQuery instances.
+// And is a logical conjunction of ConcreteItemQuery instances.
 type And struct {
-	Args []ConcreteQuery
+	Args concreteItemQueries
 }
 
-// Not is a logical negation of ConcreteQuery instances.
+// Not is a logical negation of ConcreteItemQuery instances.
 type Not struct {
-	Arg ConcreteQuery
+	Arg ConcreteItemQuery
 }
 
-// True is a true-valued ConcreteQuery.
+// True is a true-valued ConcreteItemQuery.
 type True struct{}
 
-// False is a false-valued ConcreteQuery.
+// False is a false-valued ConcreteItemQuery.
 type False struct{}
 
 // Size of TestNamePattern has a size of 1: servicing such a query requires a
@@ -83,11 +95,11 @@ func (RunTestStatusEq) Size() int { return 1 }
 func (RunTestStatusNeq) Size() int { return 1 }
 
 // Size of Or is the sum of the sizes of its constituent ConcretQuery instances.
-func (o Or) Size() int { return size(o.Args) }
+func (o Or) Size() int { return o.Args.Size() }
 
 // Size of And is the sum of the sizes of its constituent ConcretQuery
 // instances.
-func (a And) Size() int { return size(a.Args) }
+func (a And) Size() int { return a.Args.Size() }
 
 // Size of Not is one unit greater than the size of its ConcreteQuery argument.
 func (n Not) Size() int { return 1 + n.Arg.Size() }
@@ -98,9 +110,21 @@ func (True) Size() int { return 0 }
 // Size of False is 0: It should be optimized out of queries in practice.
 func (False) Size() int { return 0 }
 
-func size(qs []ConcreteQuery) int {
+type concreteQueries []ConcreteQuery
+
+func (c concreteQueries) Size() int {
 	s := 0
-	for _, q := range qs {
+	for _, q := range c {
+		s += q.Size()
+	}
+	return s
+}
+
+type concreteItemQueries []ConcreteItemQuery
+
+func (c concreteItemQueries) Size() int {
+	s := 0
+	for _, q := range c {
 		s += q.Size()
 	}
 	return s

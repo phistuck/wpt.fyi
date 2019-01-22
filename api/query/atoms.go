@@ -16,7 +16,7 @@ import (
 var browsers = shared.GetDefaultBrowserNames()
 
 // AbstractQuery is an intermetidate representation of a test results query that
-//  has not been bound to specific shared.TestRun specs for processing.
+// has not been bound to specific shared.TestRun specs for processing.
 type AbstractQuery interface {
 	BindToRuns(runs []shared.TestRun) ConcreteQuery
 }
@@ -100,6 +100,18 @@ func (tsn TestStatusNeq) BindToRuns(runs []shared.TestRun) ConcreteQuery {
 		q.Args[i] = RunTestStatusNeq{ids[i], tsn.Status}
 	}
 	return q
+}
+
+// AbstractExists is the root atom's AbstractQuery.
+type AbstractExists struct {
+	Args []AbstractQuery
+}
+
+// BindToRuns for AbstractExists produces an Exists with a bound argument.
+func (e AbstractExists) BindToRuns(runs []shared.TestRun) ConcreteQuery {
+	return Exists{
+		Runs: runs
+	}
 }
 
 // AbstractNot is the AbstractQuery for negation.
