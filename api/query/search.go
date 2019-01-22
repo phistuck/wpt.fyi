@@ -126,7 +126,7 @@ func (sh structuredSearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	simpleQ, ok := rq.AbstractQuery.(TestNamePattern)
+	simpleQ, ok := rq.Exists.(TestNamePattern)
 	if !ok {
 		ctx := sh.api.Context()
 		hostname := sh.api.GetHostname()

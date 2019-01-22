@@ -18,7 +18,7 @@ var browsers = shared.GetDefaultBrowserNames()
 // AbstractQuery is an intermetidate representation of a test results query that
 // has not been bound to specific shared.TestRun specs for processing.
 type AbstractQuery interface {
-	BindToRuns(runs []shared.TestRun) ConcreteQuery
+	BindToRuns(runs shared.TestRuns) ConcreteQuery
 }
 
 // RunQuery is the internal representation of a query recieved from an HTTP
@@ -26,159 +26,14 @@ type AbstractQuery interface {
 // to run.
 type RunQuery struct {
 	RunIDs []int64
-	AbstractQuery
-}
-
-// TestNamePattern is a query atom that matches test names to a pattern string.
-type TestNamePattern struct {
-	Pattern string
-}
-
-// BindToRuns for TestNamePattern is a no-op: TestNamePattern implements both
-// AbstractQuery and ConcreteQuery because it is independent of test runs.
-func (tnp TestNamePattern) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	return tnp
-}
-
-// TestStatusEq is a query atom that matches tests where the test status/result
-// from at least one test run with the given browser name matches the given
-// status value.
-type TestStatusEq struct {
-	BrowserName string
-	Status      int64
-}
-
-// TestStatusNeq is a query atom that matches tests where the test status/result
-// from at least one test run with the given browser name does not match the
-// given status value.
-type TestStatusNeq struct {
-	BrowserName string
-	Status      int64
-}
-
-// BindToRuns for TestStatusEq expands to a disjunction of RunTestStatusEq
-// values.
-func (tse TestStatusEq) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	ids := make([]int64, 0, len(runs))
-	for _, run := range runs {
-		if run.BrowserName == tse.BrowserName {
-			ids = append(ids, run.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return True{}
-	}
-	if len(ids) == 1 {
-		return RunTestStatusEq{ids[0], tse.Status}
-	}
-
-	q := Or{make([]ConcreteQuery, len(ids))}
-	for i := range ids {
-		q.Args[i] = RunTestStatusEq{ids[i], tse.Status}
-	}
-	return q
-}
-
-// BindToRuns for TestStatusNeq expands to a disjunction of RunTestStatusNeq
-// values.
-func (tsn TestStatusNeq) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	ids := make([]int64, 0, len(runs))
-	for _, run := range runs {
-		if run.BrowserName == tsn.BrowserName {
-			ids = append(ids, run.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return True{}
-	}
-	if len(ids) == 1 {
-		return RunTestStatusNeq{ids[0], tsn.Status}
-	}
-
-	q := Or{make([]ConcreteQuery, len(ids))}
-	for i := range ids {
-		q.Args[i] = RunTestStatusNeq{ids[i], tsn.Status}
-	}
-	return q
-}
-
-// AbstractExists is the root atom's AbstractQuery.
-type AbstractExists struct {
-	Args []AbstractQuery
+	Exists []itemQueries
 }
 
 // BindToRuns for AbstractExists produces an Exists with a bound argument.
-func (e AbstractExists) BindToRuns(runs []shared.TestRun) ConcreteQuery {
+func (r RunQuery) BindToRuns(runs shared.TestRuns) ConcreteQuery {
 	return Exists{
-		Runs: runs
-	}
-}
-
-// AbstractNot is the AbstractQuery for negation.
-type AbstractNot struct {
-	Arg AbstractQuery
-}
-
-// BindToRuns for AbstractNot produces a Not with a bound argument.
-func (n AbstractNot) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	return Not{n.Arg.BindToRuns(runs)}
-}
-
-// AbstractOr is the AbstractQuery for disjunction.
-type AbstractOr struct {
-	Args []AbstractQuery
-}
-
-// BindToRuns for AbstractOr produces an Or with bound arguments.
-func (o AbstractOr) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	args := make([]ConcreteQuery, 0, len(o.Args))
-	for i := range o.Args {
-		sub := o.Args[i].BindToRuns(runs)
-		if _, ok := sub.(True); ok {
-			return True{}
-		}
-		if _, ok := sub.(False); ok {
-			continue
-		}
-		args = append(args, sub)
-	}
-	if len(args) == 0 {
-		return True{}
-	}
-	if len(args) == 1 {
-		return args[0]
-	}
-	return Or{
-		Args: args,
-	}
-}
-
-// AbstractAnd is the AbstractQuery for conjunction.
-type AbstractAnd struct {
-	Args []AbstractQuery
-}
-
-// BindToRuns for AbstractAnd produces an And with bound arguments.
-func (a AbstractAnd) BindToRuns(runs []shared.TestRun) ConcreteQuery {
-	args := make([]ConcreteQuery, 0, len(a.Args))
-	for i := range a.Args {
-		sub := a.Args[i].BindToRuns(runs)
-		if _, ok := sub.(False); ok {
-			return False{}
-		}
-		if _, ok := sub.(True); ok {
-			continue
-		}
-		args = append(args, sub)
-	}
-	if len(args) == 0 {
-		return True{}
-	}
-	if len(args) == 1 {
-		return args[0]
-	}
-	return And{
-		Args: args,
+		Runs: runs,
+		Args: r.Exists,
 	}
 }
 
@@ -206,7 +61,7 @@ func (rq *RunQuery) UnmarshalJSON(b []byte) error {
 	}
 
 	rq.RunIDs = data.RunIDs
-	rq.AbstractQuery = q
+	rq.Exists = q
 	return nil
 }
 
@@ -233,7 +88,7 @@ func (tnp *TestNamePattern) UnmarshalJSON(b []byte) error {
 
 // UnmarshalJSON for TestStatusEq attempts to interpret a query atom as
 // {"browser_name": <browser name>, "status": <status string>}.
-func (tse *TestStatusEq) UnmarshalJSON(b []byte) error {
+func (tse *RunTestStatusEq) UnmarshalJSON(b []byte) error {
 	var data struct {
 		BrowserName string `json:"browser_name"`
 		Status      string `json:"status"`
@@ -272,7 +127,7 @@ func (tse *TestStatusEq) UnmarshalJSON(b []byte) error {
 
 // UnmarshalJSON for TestStatusNeq attempts to interpret a query atom as
 // {"browser_name": <browser name>, "status": {"not": <status string>}}.
-func (tsn *TestStatusNeq) UnmarshalJSON(b []byte) error {
+func (tsn *RunTestStatusNeq) UnmarshalJSON(b []byte) error {
 	var data struct {
 		BrowserName string `json:"browser_name"`
 		Status      struct {
@@ -313,7 +168,7 @@ func (tsn *TestStatusNeq) UnmarshalJSON(b []byte) error {
 
 // UnmarshalJSON for AbstractNot attempts to interpret a query atom as
 // {"not": <abstract query>}.
-func (n *AbstractNot) UnmarshalJSON(b []byte) error {
+func (n Not) UnmarshalJSON(b []byte) error {
 	var data struct {
 		Not json.RawMessage `json:"not"`
 	}
@@ -325,14 +180,14 @@ func (n *AbstractNot) UnmarshalJSON(b []byte) error {
 		return errors.New(`Missing negation property: "not"`)
 	}
 
-	q, err := unmarshalQ(data.Not)
+	q, err := unmarshalItem(data.Not)
 	n.Arg = q
 	return err
 }
 
 // UnmarshalJSON for AbstractOr attempts to interpret a query atom as
 // {"or": [<abstract queries>]}.
-func (o *AbstractOr) UnmarshalJSON(b []byte) error {
+func (o *Or) UnmarshalJSON(b []byte) error {
 	var data struct {
 		Or []json.RawMessage `json:"or"`
 	}
@@ -344,9 +199,9 @@ func (o *AbstractOr) UnmarshalJSON(b []byte) error {
 		return errors.New(`Missing disjunction property: "or"`)
 	}
 
-	qs := make([]AbstractQuery, 0, len(data.Or))
+	qs := make(itemQueries, 0, len(data.Or))
 	for _, msg := range data.Or {
-		q, err := unmarshalQ(msg)
+		q, err := unmarshalItem(msg)
 		if err != nil {
 			return err
 		}
@@ -358,7 +213,7 @@ func (o *AbstractOr) UnmarshalJSON(b []byte) error {
 
 // UnmarshalJSON for AbstractAnd attempts to interpret a query atom as
 // {"and": [<abstract queries>]}.
-func (a *AbstractAnd) UnmarshalJSON(b []byte) error {
+func (a *And) UnmarshalJSON(b []byte) error {
 	var data struct {
 		And []json.RawMessage `json:"and"`
 	}
@@ -370,9 +225,9 @@ func (a *AbstractAnd) UnmarshalJSON(b []byte) error {
 		return errors.New(`Missing conjunction property: "and"`)
 	}
 
-	qs := make([]AbstractQuery, 0, len(data.And))
+	qs := make(itemQueries, 0, len(data.And))
 	for _, msg := range data.And {
-		q, err := unmarshalQ(msg)
+		q, err := unmarshalItem(msg)
 		if err != nil {
 			return err
 		}
@@ -382,33 +237,42 @@ func (a *AbstractAnd) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func unmarshalQ(b []byte) (AbstractQuery, error) {
+func unmarshalQ(b []byte) ([]itemQueries, error) {
+	var exists []itemQueries
+	err := json.Unmarshal(b, &exists)
+	if err == nil {
+		return exists, nil
+	}
+	return nil, errors.New(`Failed to parse query`)
+}
+
+func unmarshalItem(b []byte) (ItemQuery, error) {
 	var tnp TestNamePattern
 	err := json.Unmarshal(b, &tnp)
 	if err == nil {
 		return tnp, nil
 	}
-	var tse TestStatusEq
+	var tse RunTestStatusEq
 	err = json.Unmarshal(b, &tse)
 	if err == nil {
 		return tse, nil
 	}
-	var tsn TestStatusNeq
+	var tsn RunTestStatusNeq
 	err = json.Unmarshal(b, &tsn)
 	if err == nil {
 		return tsn, nil
 	}
-	var n AbstractNot
+	var n Not
 	err = json.Unmarshal(b, &n)
 	if err == nil {
 		return n, nil
 	}
-	var o AbstractOr
+	var o Or
 	err = json.Unmarshal(b, &o)
 	if err == nil {
 		return o, nil
 	}
-	var a AbstractAnd
+	var a And
 	err = json.Unmarshal(b, &a)
 	if err == nil {
 		return a, nil

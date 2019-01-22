@@ -31,16 +31,21 @@ type ConcreteQuery interface {
 	Size() int
 }
 
-// ConcreteItemQuery is an AbstractItemQuery that has been bound to a specific test run.
-type ConcreteItemQuery interface {
+// ItemQuery is an AbstractItemQuery that has been bound to a specific test run.
+type ItemQuery interface {
 	ConcreteQuery
+}
+
+// TestNamePattern is a query atom that matches test names to a pattern string.
+type TestNamePattern struct {
+	Pattern string
 }
 
 // Exists is constrains search results to require that at least one run meets the
 // requirements of its Arg tree.
 type Exists struct {
-	Runs []shared.TestRun
-	Args []ConcreteItemQuery
+	Runs shared.TestRuns
+	Args []itemQueries
 }
 
 // RunTestStatusEq constrains search results to include only test results from a
@@ -48,8 +53,8 @@ type Exists struct {
 // values automatically assigned to shared.TestRun instances by Datastore.
 // Status IDs are those codified in shared.TestStatus* symbols.
 type RunTestStatusEq struct {
-	Run    int64
-	Status int64
+	BrowserName string
+	Status      int64
 }
 
 // RunTestStatusNeq constrains search results to include only test results from a
@@ -57,30 +62,39 @@ type RunTestStatusEq struct {
 // those values automatically assigned to shared.TestRun instances by Datastore.
 // Status IDs are those codified in shared.TestStatus* symbols.
 type RunTestStatusNeq struct {
-	Run    int64
-	Status int64
+	BrowserName string
+	Status      int64
 }
 
-// Or is a logical disjunction of ConcreteItemQuery instances.
+// Or is a logical disjunction of ItemQuery instances.
 type Or struct {
-	Args concreteItemQueries
+	Args itemQueries
 }
 
-// And is a logical conjunction of ConcreteItemQuery instances.
+// And is a logical conjunction of ItemQuery instances.
 type And struct {
-	Args concreteItemQueries
+	Args itemQueries
 }
 
-// Not is a logical negation of ConcreteItemQuery instances.
+// Not is a logical negation of ItemQuery instances.
 type Not struct {
-	Arg ConcreteItemQuery
+	Arg ItemQuery
 }
 
-// True is a true-valued ConcreteItemQuery.
+// True is a true-valued ItemQuery.
 type True struct{}
 
-// False is a false-valued ConcreteItemQuery.
+// False is a false-valued ItemQuery.
 type False struct{}
+
+// Size of Exists is the size of its item's sizes, summed.
+func (e Exists) Size() int {
+	sum := 0
+	for i := range e.Args {
+		sum += e.Args[i].Size()
+	}
+	return sum
+}
 
 // Size of TestNamePattern has a size of 1: servicing such a query requires a
 // substring match per test.
@@ -120,9 +134,9 @@ func (c concreteQueries) Size() int {
 	return s
 }
 
-type concreteItemQueries []ConcreteItemQuery
+type itemQueries []ItemQuery
 
-func (c concreteItemQueries) Size() int {
+func (c itemQueries) Size() int {
 	s := 0
 	for _, q := range c {
 		s += q.Size()
