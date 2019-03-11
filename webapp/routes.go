@@ -14,6 +14,9 @@ import (
 	"github.com/web-platform-tests/wpt.fyi/api/screenshot"
 	"github.com/web-platform-tests/wpt.fyi/api/taskcluster"
 	"github.com/web-platform-tests/wpt.fyi/shared"
+
+	// Registers the remote api.
+	_ "google.golang.org/appengine/remote_api"
 )
 
 var templates = template.Must(template.ParseGlob("templates/*.html"))
